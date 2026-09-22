@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Antibióticos Hospitalarios</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 font-sans">
+
+<div id="app" class="min-h-screen">
+
+  <!-- HEADER -->
+  <header class="bg-slate-800 text-white p-4 flex justify-between items-center">
+    <h1 class="text-xl font-bold">💊 Control de Antibióticos</h1>
+    <nav class="flex gap-2">
+      <button onclick="mostrar('dashboard')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Dashboard</button>
+      <button onclick="mostrar('dispensar')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Dispensar</button>
+      <button onclick="mostrar('ingresar')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Ingresar Stock</button>
+      <button onclick="mostrar('antibioticos')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Antibióticos</button>
+      <button onclick="exportarExcel()" class="px-3 py-1 rounded bg-green-700 hover:bg-green-600">Exportar Excel</button>
+      <button onclick="toggleContraste()" class="px-3 py-1 rounded bg-yellow-600 hover:bg-yellow-500">🌙 Contraste</button>
+    </nav>
+  </header>
+
+  <!-- DASHBOARD -->
+  <section id="view-dashboard" class="p-6">
+    <div class="flex justify-between mb-4">
+      <h2 class="text-2xl font-bold">Stock en Tiempo Real</h2>
+      <input id="buscador" placeholder="Buscar (Ctrl+K)" class="border rounded px-3 py-1" oninput="filtrarStock()">
+    </div>
+    <div id="tabla-stock" class="grid gap-2"></div>
+  </section>
+
+  <!-- DISPENSACION RAPIDA -->
+  <section id="view-dispensar" class="p-6 hidden">
+    <h2 class="text-2xl font-bold mb-4">Dispensación Rápida</h2>
+
+    <p class="font-semibold mb-2">PASO 1: Sector destino (teclado 1-8)</p>
+    <div id="sectores-botones" class="grid grid-cols-4 gap-2 mb-6"></div>
+    <p id="sector-elegido" class="mb-4 text-blue-700 font-bold"></p>
+
+    <p class="font-semibold mb-2">PASO 2: Buscar antibiótico</p>
+    <input id="buscar-atb" placeholder="Escribí el nombre..." class="border rounded px-3 py-2 w-full mb-2" oninput="buscarAntibiotico()">
+    <div id="resultados-atb" class="mb-4"></div>
+
+    <div id="lote-sugerido" class="bg-blue-50 border border-blue-300 rounded p-3 mb-4 hidden"></div>
+
+    <div class="flex gap-4 mb-4">
+      <div>
+        <label class="block text-sm">Cantidad</label>
+        <input id="cantidad" type="number" class="border rounded px-3 py-2 w-32">
+      </div>
+      <div>
+        <label class="block text-sm">Solicitante (matrícula)</label>
+        <input id="solicitante" class="border rounded px-3 py-2 w-48">
+      </div>
+    </div>
+
+    <button onclick="confirmarEgreso()" class="bg-green-600 text-white px-6 py-3 rounded font-bold text-lg">CONFIRMAR EGRESO (Enter)</button>
+    <p id="msg-dispensar" class="mt-3 font-bold"></p>
+  </section>
+
+  <!-- INGRESAR STOCK -->
+  <section id="view-ingresar" class="p-6 hidden">
+    <h2 class="text-2xl font-bold mb-4">Ingreso de Stock a Farmacia</h2>
+    <div class="grid grid-cols-2 gap-4 max-w-2xl">
+      <div>
+        <label class="block text-sm">Antibiótico</label>
+        <select id="ing-antibiotico" class="border rounded px-3 py-2 w-full"></select>
+      </div>
+      <div>
+        <label class="block text-sm">Cantidad</label>
+        <input id="ing-cantidad" type="number" class="border rounded px-3 py-2 w-full">
+      </div>
+      <div>
+        <label class="block text-sm">Lote</label>
+        <input id="ing-lote" class="border rounded px-3 py-2 w-full">
+      </div>
+      <div>
+        <label class="block text-sm">Fecha de Vencimiento</label>
+        <input id="ing-vencimiento" type="date" class="border rounded px-3 py-2 w-full">
+      </div>
+      <div>
+        <label class="block text-sm">Proveedor</label>
+        <input id="ing-proveedor" class="border rounded px-3 py-2 w-full">
+      </div>
+      <div>
+        <label class="block text-sm">N° Remito</label>
+        <input id="ing-remito" class="border rounded px-3 py-2 w-full">
+      </div>
+    </div>
+    <button onclick="registrarIngreso()" class="bg-blue-600 text-white px-6 py-3 rounded font-bold mt-4">Registrar Ingreso</button>
+    <p id="msg-ingresar" class="mt-3 font-bold"></p>
+  </section>
+
+  <!-- ANTIBIOTICOS (EDITABLE) -->
+  <section id="view-antibioticos" class="p-6 hidden">
+    <h2 class="text-2xl font-bold mb-4">Catálogo de Antibióticos</h2>
+    <div id="lista-antibioticos" class="grid gap-1 mb-6"></div>
+
+    <div class="bg-white border rounded p-4 max-w-xl">
+      <h3 class="font-bold mb-2">+ Agregar nuevo antibiótico</h3>
+      <input id="nuevo-nombre" placeholder="Nombre genérico" class="border rounded px-3 py-2 w-full mb-2">
+      <input id="nuevo-presentacion" placeholder="Presentación (ej: 1g)" class="border rounded px-3 py-2 w-full mb-2">
+      <input id="nuevo-minimo" type="number" placeholder="Stock mínimo alerta" value="30" class="border rounded px-3 py-2 w-full mb-2">
+      <button onclick="agregarAntibiotico()" class="bg-green-600 text-white px-4 py-2 rounded">Agregar</button>
+    </div>
+  </section>
+
+</div>
+
+<script>
+const API = '/api';
+let sectores = [], antibioticos = [], stock = [];
+let sectorSeleccionado = null, antibioticoSeleccionado = null, loteSugerido = null;
+
+async function cargarDatos() {
+  sectores = await (await fetch(`${API}/sectores`)).json();
+  antibioticos = await (await fetch(`${API}/antibioticos`)).json();
+  stock = await (await fetch(`${API}/stock`)).json();
+  renderStock(stock);
+  renderSectores();
+  renderSelectIngreso();
+  renderListaAntibioticos();
+}
+
+function mostrar(vista) {
+  ['dashboard','dispensar','ingresar','antibioticos'].forEach(v => {
+    document.getElementById('view-'+v).classList.toggle('hidden', v !== vista);
+  });
+  if (vista === 'dashboard') cargarDatos();
+}
+
+// DASHBOARD
+function renderStock(data) {
+  const cont = document.getElementById('tabla-stock');
+  cont.innerHTML = data.map(a => {
+    const color = a.semaforo === 'rojo' ? 'bg-red-100 border-red-400' : a.semaforo === 'amarillo' ? 'bg-yellow-100 border-yellow-400' : 'bg-green-100 border-green-400';
+    const punto = a.semaforo === 'rojo' ? '🔴' : a.semaforo === 'amarillo' ? '🟡' : '🟢';
+    return `<div class="border rounded p-3 flex justify-between items-center ${color}">
+      <span>${punto} <b>${a.nombre_generico}</b> ${a.presentacion}</span>
+      <span>Stock: <b>${a.stock_actual}</b> (mín: ${a.stock_minimo_alerta})</span>
+    </div>`;
+  }).join('');
+}
+
+function filtrarStock() {
+  const q = document.getElementById('buscador').value.toLowerCase();
+  renderStock(stock.filter(a => a.nombre_generico.toLowerCase().includes(q)));
+}
+
+// DISPENSAR - Sectores
+function renderSectores() {
+  const cont = document.getElementById('sectores-botones');
+  cont.innerHTML = sectores.map((s, i) => 
+    `<button onclick="elegirSector(${s.id_sector}, '${s.nombre}')" class="border rounded p-2 bg-white hover:bg-blue-100">${i+1}. ${s.nombre}</button>`
+  ).join('');
+}
+
+function elegirSector(id, nombre) {
+  sectorSeleccionado = id;
+  document.getElementById('sector-elegido').innerText = `Sector elegido: ${nombre}`;
+}
+
+function buscarAntibiotico() {
+  const q = document.getElementById('buscar-atb').value.toLowerCase();
+  const filtrados = antibioticos.filter(a => a.nombre_generico.toLowerCase().includes(q));
+  document.getElementById('resultados-atb').innerHTML = filtrados.map(a => 
+    `<div onclick="elegirAntibiotico(${a.id_antibiotico}, '${a.nombre_generico} ${a.presentacion}')" class="cursor-pointer border rounded p-2 hover:bg-blue-50">${a.nombre_generico} ${a.presentacion}</div>`
+  ).join('');
+}
+
+async function elegirAntibiotico(id, nombre) {
+  antibioticoSeleccionado = id;
+  document.getElementById('buscar-atb').value = nombre;
+  document.getElementById('resultados-atb').innerHTML = '';
+  const lotes = await (await fetch(`${API}/lotes/${id}`)).json();
+  const div = document.getElementById('lote-sugerido');
+  if (lotes.length > 0) {
+    loteSugerido = lotes[0];
+    div.classList.remove('hidden');
+    div.innerHTML = `Sugerencia FEFO: Lote <b>${loteSugerido.lote}</b> | Vence: ${loteSugerido.fecha_vencimiento} | Stock: ${loteSugerido.stock_disponible}`;
+  } else {
+    div.classList.add('hidden');
+    loteSugerido = null;
+  }
+}
+
+async function confirmarEgreso(forzar = false) {
+  const cantidad = parseInt(document.getElementById('cantidad').value);
+  const solicitante = document.getElementById('solicitante').value;
+  const msg = document.getElementById('msg-dispensar');
+
+  if (!sectorSeleccionado || !antibioticoSeleccionado || !cantidad || !solicitante) {
+    msg.className = 'mt-3 font-bold text-red-600';
+    msg.innerText = 'Completá todos los campos.';
+    return;
+  }
+
+  const res = await fetch(`${API}/egresos`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      id_antibiotico: antibioticoSeleccionado,
+      id_sector: sectorSeleccionado,
+      cantidad, lote: loteSugerido ? loteSugerido.lote : null,
+      solicitante, forzar
+    })
+  });
+  const data = await res.json();
+
+  if (res.status === 400) {
+    msg.className = 'mt-3 font-bold text-red-600';
+    msg.innerText = `⛔ Stock insuficiente. Disponible: ${data.disponible}`;
+    return;
+  }
+  if (data.alerta === 'CANTIDAD_ANOMALA') {
+    if (confirm(`⚠️ La cantidad supera el promedio histórico (${Math.round(data.promedio)}). ¿Confirmás igual?`)) {
+      confirmarEgreso(true);
+    }
+    return;
+  }
+
+  msg.className = 'mt-3 font-bold text-green-600';
+  msg.innerText = '✅ Egreso registrado correctamente';
+  document.getElementById('cantidad').value = '';
+  document.getElementById('solicitante').value = '';
+  setTimeout(() => msg.innerText = '', 3000);
+}
+
+// INGRESOS
+function renderSelectIngreso() {
+  document.getElementById('ing-antibiotico').innerHTML = antibioticos.map(a => 
+    `<option value="${a.id_antibiotico}">${a.nombre_generico} ${a.presentacion}</option>`
+  ).join('');
+}
+
+async function registrarIngreso() {
+  const body = {
+    id_antibiotico: document.getElementById('ing-antibiotico').value,
+    cantidad: parseInt(document.getElementById('ing-cantidad').value),
+    lote: document.getElementById('ing-lote').value,
+    fecha_vencimiento: document.getElementById('ing-vencimiento').value,
+    proveedor: document.getElementById('ing-proveedor').value,
+    numero_remito: document.getElementById('ing-remito').value
+  };
+  await fetch(`${API}/ingresos`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  document.getElementById('msg-ingresar').className = 'mt-3 font-bold text-green-600';
+  document.getElementById('msg-ingresar').innerText = '✅ Ingreso registrado';
+  setTimeout(() => document.getElementById('msg-ingresar').innerText = '', 3000);
+}
+
+// ANTIBIOTICOS
+function renderListaAntibioticos() {
+  document.getElementById('lista-antibioticos').innerHTML = antibioticos.map(a => 
+    `<div class="border rounded p-2 bg-white">${a.nombre_generico} — ${a.presentacion} (mín: ${a.stock_minimo_alerta})</div>`
+  ).join('');
+}
+
+async function agregarAntibiotico() {
+  const body = {
+    nombre_generico: document.getElementById('nuevo-nombre').value,
+    presentacion: document.getElementById('nuevo-presentacion').value,
+    stock_minimo_alerta: parseInt(document.getElementById('nuevo-minimo').value) || 30
+  };
+  await fetch(`${API}/antibioticos`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  document.getElementById('nuevo-nombre').value = '';
+  document.getElementById('nuevo-presentacion').value = '';
+  cargarDatos();
+}
+
+// EXPORTAR
+function exportarExcel() {
+  window.location.href = `${API}/export/excel`;
+}
+
+// ALTO CONTRASTE
+function toggleContraste() {
+  document.body.classList.toggle('invert');
+}
+
+// ATAJOS DE TECLADO
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'k') {
+    e.preventDefault();
+    document.getElementById('buscador')?.focus();
+  }
+  if (!document.getElementById('view-dispensar').classList.contains('hidden')) {
+    if (e.key >= '1' && e.key <= '8' && document.activeElement.tagName !== 'INPUT') {
+      const idx = parseInt(e.key) - 1;
+      if (sectores[idx]) elegirSector(sectores[idx].id_sector, sectores[idx].nombre);
+    }
+    if (e.key === 'Enter' && document.activeElement.id !== 'buscar-atb') confirmarEgreso();
+  }
+});
+
+cargarDatos();
+</script>
+</body>
+</html>
