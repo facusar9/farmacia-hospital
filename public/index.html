@@ -384,3 +384,163 @@ async function cargarAntibioticosAdmin() {
       <div>
         <p class="font-semibold">${a.nombre_generico} <span class="text-slate-400 text-sm">${a.presentacion}</span></p>
         <p class="text-xs text-slate-400">Mín: ${a.stock
+// ============ ANTIBIOTICOS (ADMIN) ============
+async function cargarAntibioticosAdmin() {
+  const todos = document.getElementById('ver-inactivos').checked;
+  antibioticosAdmin = await (await fetch(`${API}/antibioticos?todos=${todos}`)).json();
+  document.getElementById('lista-antibioticos').innerHTML = antibioticosAdmin.map(a => `
+    <div class="flex justify-between items-center border rounded-lg p-3 bg-white ${!a.activo ? 'opacity-50' : ''}">
+      <div>
+        <p class="font-semibold">${a.nombre_generico} <span class="text-slate-400 text-sm">${a.presentacion}</span></p>
+        <p class="text-xs text-slate-400">Mín: ${a.stock_minimo_alerta} | DDD: ${a.ddd_gramos || '—'} g/día | ${a.gramos_por_unidad || '—'} g/unidad ${!a.activo ? '· <span class="text-red-500 font-semibold">INACTIVO</span>' : ''}</p>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="abrirModalAtb(${a.id_antibiotico})" class="px-3 py-1 rounded-lg bg-blue-100 text-blue-700 text-sm font-semibold">Editar</button>
+        ${a.activo
+          ? `<button onclick="cambiarEstadoAtb(${a.id_antibiotico}, false)" class="px-3 py-1 rounded-lg bg-red-100 text-red-700 text-sm font-semibold">Desactivar</button>`
+          : `<button onclick="cambiarEstadoAtb(${a.id_antibiotico}, true)" class="px-3 py-1 rounded-lg bg-green-100 text-green-700 text-sm font-semibold">Reactivar</button>`}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function cambiarEstadoAtb(id, activo) {
+  const accion = activo ? 'reactivar' : 'desactivar';
+  if (!confirm(`¿Confirmás que querés ${accion} este antibiótico?`)) return;
+  await fetch(`${API}/antibioticos/${id}/estado`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ activo })
+  });
+  cargarAntibioticosAdmin();
+}
+
+function abrirModalAtb(id) {
+  document.getElementById('modal-atb').classList.remove('hidden');
+  if (id) {
+    const a = antibioticosAdmin.find(x => x.id_antibiotico === id);
+    document.getElementById('modal-atb-titulo').innerText = 'Editar antibiótico';
+    document.getElementById('atb-id').value = a.id_antibiotico;
+    document.getElementById('atb-nombre').value = a.nombre_generico;
+    document.getElementById('atb-presentacion').value = a.presentacion;
+    document.getElementById('atb-minimo').value = a.stock_minimo_alerta;
+    document.getElementById('atb-gramos').value = a.gramos_por_unidad || '';
+    document.getElementById('atb-ddd').value = a.ddd_gramos || '';
+  } else {
+    document.getElementById('modal-atb-titulo').innerText = 'Agregar antibiótico';
+    ['atb-id','atb-nombre','atb-presentacion','atb-minimo','atb-gramos','atb-ddd'].forEach(id => document.getElementById(id).value = '');
+  }
+}
+function cerrarModalAtb() { document.getElementById('modal-atb').classList.add('hidden'); }
+
+async function guardarAntibiotico() {
+  const id = document.getElementById('atb-id').value;
+  const body = {
+    nombre_generico: document.getElementById('atb-nombre').value,
+    presentacion: document.getElementById('atb-presentacion').value,
+    stock_minimo_alerta: parseInt(document.getElementById('atb-minimo').value) || 30,
+    gramos_por_unidad: parseFloat(document.getElementById('atb-gramos').value) || null,
+    ddd_gramos: parseFloat(document.getElementById('atb-ddd').value) || null
+  };
+  if (!body.nombre_generico) { alert('El nombre es obligatorio'); return; }
+
+  if (id) {
+    await fetch(`${API}/antibioticos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  } else {
+    await fetch(`${API}/antibioticos`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  }
+  cerrarModalAtb();
+  cargarAntibioticosAdmin();
+  cargarDatos();
+}
+
+// ============ EPIDEMIOLOGIA / CENSO / DDD ============
+function llenarSelectsMes() {
+  ['censo-mes','ddd-mes'].forEach(id => {
+    document.getElementById(id).innerHTML = MESES.map((m,i) => `<option value="${i+1}" ${i+1===new Date().getMonth()+1?'selected':''}>${m}</option>`).join('');
+  });
+}
+function llenarSelectSectorCenso() {
+  document.getElementById('censo-sector').innerHTML = sectores.map(s => `<option value="${s.id_sector}">${s.nombre}</option>`).join('');
+}
+
+async function guardarCenso() {
+  const body = {
+    id_sector: document.getElementById('censo-sector').value,
+    anio: parseInt(document.getElementById('censo-anio').value),
+    mes: parseInt(document.getElementById('censo-mes').value),
+    dias_paciente: parseInt(document.getElementById('censo-dias').value)
+  };
+  if (!body.dias_paciente) { alert('Ingresá los días-paciente'); return; }
+  await fetch(`${API}/censo`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  cargarTablaCenso();
+}
+
+async function cargarTablaCenso() {
+  const anio = document.getElementById('censo-anio').value;
+  const mes = document.getElementById('censo-mes').value;
+  const rows = await (await fetch(`${API}/censo?anio=${anio}&mes=${mes}`)).json();
+  document.getElementById('tabla-censo').innerHTML = rows.length ? `
+    <table class="w-full text-sm mt-2">
+      <thead class="text-slate-400 text-xs"><tr><th class="text-left p-1">Sector</th><th class="text-right p-1">Días-Paciente</th></tr></thead>
+      <tbody>${rows.map(r => `<tr class="border-t border-slate-100"><td class="p-1">${r.sector}</td><td class="p-1 text-right font-mono">${r.dias_paciente}</td></tr>`).join('')}</tbody>
+    </table>` : '<p class="text-slate-400 text-sm mt-2">Sin datos cargados para este mes.</p>';
+}
+
+async function calcularDDD() {
+  const anio = document.getElementById('ddd-anio').value;
+  const mes = document.getElementById('ddd-mes').value;
+  const data = await (await fetch(`${API}/ddd?anio=${anio}&mes=${mes}`)).json();
+
+  document.getElementById('ddd-excluidos').innerHTML = data.excluidos.length
+    ? `⚠️ Excluidos del cálculo por falta de DDD/gramos configurados: ${data.excluidos.join(', ')}. Completalos en la sección Antibióticos.`
+    : '';
+
+  document.getElementById('ddd-tabla').innerHTML = data.sectores.length ? data.sectores.map(s => {
+    let banda = '';
+    if (s.ddd_por_1000_dias_paciente !== null) {
+      banda = s.ddd_por_1000_dias_paciente > 1500 ? 'bg-red-50 border-red-200' :
+              s.ddd_por_1000_dias_paciente > 800 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200';
+    }
+    return `
+    <div class="border rounded-lg p-3 mb-2 ${banda}">
+      <div class="flex justify-between items-center">
+        <p class="font-semibold">${s.sector}</p>
+        <p class="text-lg font-bold">${s.ddd_por_1000_dias_paciente !== null ? s.ddd_por_1000_dias_paciente + ' DDD/1000 días-pac.' : 'Sin censo cargado'}</p>
+      </div>
+      <p class="text-xs text-slate-400">DDD totales: ${s.ddd_totales} | Días-paciente: ${s.dias_paciente || '—'}</p>
+      <details class="text-xs mt-1">
+        <summary class="cursor-pointer text-slate-500">Ver detalle por fármaco</summary>
+        ${s.detalle.map(d => `<p class="ml-3">• ${d.nombre_generico}: ${d.ddd_consumidas} DDD</p>`).join('')}
+      </details>
+    </div>`;
+  }).join('') : '<p class="text-slate-400 text-sm">Sin egresos registrados para este período.</p>';
+}
+
+// ============ EXCEL ============
+function exportarExcel() { window.location.href = `${API}/export/excel`; }
+
+// ============ ALTO CONTRASTE ============
+function toggleContraste() { document.body.classList.toggle('contraste'); }
+
+// ============ TECLADO ============
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'k') { e.preventDefault(); document.getElementById('buscador')?.focus(); }
+  if (!document.getElementById('view-dispensar').classList.contains('hidden')) {
+    if (e.key >= '1' && e.key <= '8') {
+      const idx = parseInt(e.key) - 1;
+      if (sectores[idx]) elegirSector(sectores[idx].id_sector, sectores[idx].nombre);
+    }
+    if (e.key === 'Enter' && document.activeElement.id === 'cantidad') confirmarEgreso();
+  }
+});
+
+// Cargar tabla de censo automáticamente al entrar a Epidemiología
+const origMostrar = mostrar;
+mostrar = function(vista) {
+  origMostrar(vista);
+  if (vista === 'epidemiologia') { cargarTablaCenso(); calcularDDD(); }
+};
+
+cargarDatos();
+</script>
+</body>
+</html>
