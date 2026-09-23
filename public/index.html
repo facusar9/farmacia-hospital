@@ -10,7 +10,6 @@
 
 <div id="app" class="min-h-screen">
 
-  <!-- HEADER -->
   <header class="bg-slate-800 text-white p-4 flex justify-between items-center">
     <h1 class="text-xl font-bold">💊 Control de Antibióticos</h1>
     <nav class="flex gap-2">
@@ -25,11 +24,27 @@
 
   <!-- DASHBOARD -->
   <section id="view-dashboard" class="p-6">
-    <div class="flex justify-between mb-4">
-      <h2 class="text-2xl font-bold">Stock en Tiempo Real</h2>
+    <div class="flex justify-between mb-2">
+      <h2 class="text-2xl font-bold">Stock, Consumo y Autonomía</h2>
       <input id="buscador" placeholder="Buscar (Ctrl+K)" class="border rounded px-3 py-1" oninput="filtrarStock()">
     </div>
-    <div id="tabla-stock" class="grid gap-2"></div>
+    <p class="text-sm text-slate-500 mb-4">Consumo calculado sobre los últimos 3 meses. Renovación sugerida con 15 días de anticipación.</p>
+    <div class="overflow-x-auto">
+      <table class="w-full bg-white rounded shadow text-sm">
+        <thead class="bg-slate-700 text-white">
+          <tr>
+            <th class="p-2 text-left">Antibiótico</th>
+            <th class="p-2 text-left">Stock Actual</th>
+            <th class="p-2 text-left">Consumo/mes (3m)</th>
+            <th class="p-2 text-left">Autonomía</th>
+            <th class="p-2 text-left">Agotamiento Est.</th>
+            <th class="p-2 text-left">Renovar Compra</th>
+            <th class="p-2 text-left">Estado</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-stock"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- DISPENSACION RAPIDA -->
@@ -136,12 +151,24 @@ function mostrar(vista) {
 function renderStock(data) {
   const cont = document.getElementById('tabla-stock');
   cont.innerHTML = data.map(a => {
-    const color = a.semaforo === 'rojo' ? 'bg-red-100 border-red-400' : a.semaforo === 'amarillo' ? 'bg-yellow-100 border-yellow-400' : 'bg-green-100 border-green-400';
+    const color = a.semaforo === 'rojo' ? 'bg-red-50' : a.semaforo === 'amarillo' ? 'bg-yellow-50' : 'bg-green-50';
     const punto = a.semaforo === 'rojo' ? '🔴' : a.semaforo === 'amarillo' ? '🟡' : '🟢';
-    return `<div class="border rounded p-3 flex justify-between items-center ${color}">
-      <span>${punto} <b>${a.nombre_generico}</b> ${a.presentacion}</span>
-      <span>Stock: <b>${a.stock_actual}</b> (mín: ${a.stock_minimo_alerta})</span>
-    </div>`;
+
+    const autonomia = a.dias_autonomia !== null ? `${a.dias_autonomia} días` : 'Sin consumo reciente';
+    const agotamiento = a.fecha_agotamiento || '—';
+    const renovacionColor = a.alerta_renovacion ? 'text-red-600 font-bold' : 'text-slate-700';
+    const renovacion = a.fecha_renovacion_sugerida ? a.fecha_renovacion_sugerida : '—';
+    const renovacionTexto = a.alerta_renovacion ? `⚠️ RENOVAR YA (${renovacion})` : renovacion;
+
+    return `<tr class="border-b ${color}">
+      <td class="p-2">${a.nombre_generico} ${a.presentacion}</td>
+      <td class="p-2 font-bold">${a.stock_actual}</td>
+      <td class="p-2">${a.consumo_promedio_mensual} u/mes</td>
+      <td class="p-2">${autonomia}</td>
+      <td class="p-2">${agotamiento}</td>
+      <td class="p-2 ${renovacionColor}">${renovacionTexto}</td>
+      <td class="p-2">${punto}</td>
+    </tr>`;
   }).join('');
 }
 
