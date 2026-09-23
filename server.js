@@ -2,12 +2,41 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const ExcelJS = require('exceljs');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const Tesseract = require('tesseract.js');
 require('dotenv').config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
+
+// ============================================
+// CONFIGURACIÓN DE CARGA DE FOTOS
+// ============================================
+const uploadDir = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDir),
+  filename: (req, file, cb) => {
+    const unique = Date.now() + '-' + Math.round(Math.random() * 1e6);
+    cb(null, unique + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB máximo
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('Solo se permiten imágenes'));
+    }
+    cb(null, true);
+  }
+});
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -143,13 +172,45 @@ app.get('/api/lotes/:id_antibiotico', async (req, res) => {
 // INGRESOS
 // ============================================
 app.post('/api/ingresos', async (req, res) => {
-  const { id_antibiotico, cantidad, lote, fecha_vencimiento, proveedor, numero_remito } = req.body;
-  const result = await pool.query(
-    `INSERT INTO ingresos (id_antibiotico, cantidad, lote, fecha_vencimiento, proveedor, numero_remito) 
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [id_antibiotico, cantidad, lote, fecha_vencimiento, proveedor, numero_remito]
-  );
-  res.json(result.rows[0]);
+  try {
+    const { id_antibiotico, cantidad, lote, fecha_vencimiento, proveedor, numero_remito, foto_url } = req.body;
+    const result = await pool.query(
+      `INSERT INTO ingresos (id_antibiotico, cantidad, lote, fecha_vencimiento, proveedor, numero_remito, foto_path) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [id_antibiotico, cantidad, lote, fecha_vencimiento, proveedor, numero_remito, foto_url || null]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al registrar ingreso' });
+  }
+});
+
+// ============================================
+// ANALIZAR FOTO (OCR) - antes de guardar el ingreso
+// ============================================
+app.post('/api/ingresos/analizar-foto', upload.single('foto'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen' });
+
+    const imagePath = req.file.path;
+    const { data: { text } } = await Tesseract.recognize(imagePath, 'spa');
+
+    const loteMatch = text.match(/lote[:\s]*([A-Z0-9\-]+)/i);
+    const vencMatch = text.match(/(vto|venc|exp)[:\s.]*(\d{2}[\/\-]\d{2,4}[\/\-]?\d{0,2})/i);
+
+    res.json({
+      foto_url: `/uploads/${req.file.filename}`,
+      texto_detectado: text,
+      sugerencias: {
+        lote: loteMatch ? loteMatch[1] : null,
+        fecha_vencimiento: vencMatch ? vencMatch[2] : null
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al procesar la imagen' });
+  }
 });
 
 // ============================================
