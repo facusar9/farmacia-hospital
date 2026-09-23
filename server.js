@@ -14,6 +14,8 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+const LEAD_TIME_DIAS = 15; // días que tarda en llegar una compra nueva (ajustable)
+
 // ============================================
 // SECTORES
 // ============================================
@@ -40,7 +42,7 @@ app.post('/api/antibioticos', async (req, res) => {
 });
 
 // ============================================
-// DASHBOARD - STOCK EN TIEMPO REAL CON SEMÁFORO
+// DASHBOARD - STOCK + CONSUMO PROMEDIO + AUTONOMÍA + RENOVACIÓN
 // ============================================
 app.get('/api/stock', async (req, res) => {
   const query = `
@@ -49,24 +51,82 @@ app.get('/api/stock', async (req, res) => {
       a.nombre_generico,
       a.presentacion,
       a.stock_minimo_alerta,
-      COALESCE(SUM(i.cantidad), 0) - COALESCE((
-        SELECT SUM(e.cantidad) FROM egresos e WHERE e.id_antibiotico = a.id_antibiotico
-      ), 0) AS stock_actual
+      COALESCE(ing.total_ingresos, 0) - COALESCE(egr.total_egresos, 0) AS stock_actual,
+      COALESCE(egr3m.total_3m, 0) AS consumo_3_meses,
+      prox.proximo_vencimiento
     FROM antibioticos a
-    LEFT JOIN ingresos i ON i.id_antibiotico = a.id_antibiotico
+    LEFT JOIN (
+      SELECT id_antibiotico, SUM(cantidad) AS total_ingresos 
+      FROM ingresos GROUP BY id_antibiotico
+    ) ing ON ing.id_antibiotico = a.id_antibiotico
+    LEFT JOIN (
+      SELECT id_antibiotico, SUM(cantidad) AS total_egresos 
+      FROM egresos GROUP BY id_antibiotico
+    ) egr ON egr.id_antibiotico = a.id_antibiotico
+    LEFT JOIN (
+      SELECT id_antibiotico, SUM(cantidad) AS total_3m 
+      FROM egresos 
+      WHERE fecha_egreso >= NOW() - INTERVAL '90 days'
+      GROUP BY id_antibiotico
+    ) egr3m ON egr3m.id_antibiotico = a.id_antibiotico
+    LEFT JOIN (
+      SELECT id_antibiotico, MIN(fecha_vencimiento) AS proximo_vencimiento
+      FROM ingresos
+      WHERE fecha_vencimiento >= CURRENT_DATE
+      GROUP BY id_antibiotico
+    ) prox ON prox.id_antibiotico = a.id_antibiotico
     WHERE a.activo = TRUE
-    GROUP BY a.id_antibiotico, a.nombre_generico, a.presentacion, a.stock_minimo_alerta
     ORDER BY a.nombre_generico
   `;
   const result = await pool.query(query);
-  
+  const hoy = new Date();
+
   const data = result.rows.map(row => {
+    const stock_actual = parseInt(row.stock_actual);
+    const consumo_3m = parseInt(row.consumo_3_meses);
+    const consumo_promedio_diario = consumo_3m / 90;
+    const consumo_promedio_mensual = consumo_3m / 3;
+
     let semaforo = 'verde';
-    if (row.stock_actual <= row.stock_minimo_alerta) semaforo = 'rojo';
-    else if (row.stock_actual <= row.stock_minimo_alerta * 1.5) semaforo = 'amarillo';
-    return { ...row, semaforo };
+    if (stock_actual <= row.stock_minimo_alerta) semaforo = 'rojo';
+    else if (stock_actual <= row.stock_minimo_alerta * 1.5) semaforo = 'amarillo';
+
+    let dias_autonomia = null;
+    let fecha_agotamiento = null;
+    let fecha_renovacion_sugerida = null;
+    let alerta_renovacion = false;
+
+    if (consumo_promedio_diario > 0) {
+      dias_autonomia = Math.floor(stock_actual / consumo_promedio_diario);
+
+      const fAgota = new Date(hoy);
+      fAgota.setDate(fAgota.getDate() + dias_autonomia);
+      fecha_agotamiento = fAgota.toISOString().split('T')[0];
+
+      const fRenueva = new Date(fAgota);
+      fRenueva.setDate(fRenueva.getDate() - LEAD_TIME_DIAS);
+      fecha_renovacion_sugerida = fRenueva.toISOString().split('T')[0];
+
+      if (fRenueva <= hoy) alerta_renovacion = true;
+    }
+
+    return {
+      id_antibiotico: row.id_antibiotico,
+      nombre_generico: row.nombre_generico,
+      presentacion: row.presentacion,
+      stock_minimo_alerta: row.stock_minimo_alerta,
+      stock_actual,
+      consumo_promedio_mensual: Math.round(consumo_promedio_mensual),
+      consumo_promedio_diario: Math.round(consumo_promedio_diario * 10) / 10,
+      dias_autonomia,
+      fecha_agotamiento,
+      fecha_renovacion_sugerida,
+      alerta_renovacion,
+      proximo_vencimiento: row.proximo_vencimiento,
+      semaforo
+    };
   });
-  
+
   res.json(data);
 });
 
@@ -111,7 +171,6 @@ app.post('/api/ingresos', async (req, res) => {
 app.post('/api/egresos', async (req, res) => {
   const { id_antibiotico, id_sector, cantidad, lote, solicitante, tipo, forzar } = req.body;
 
-  // Validación Poka-Yoke: stock total disponible
   const stockQuery = await pool.query(`
     SELECT COALESCE(SUM(cantidad), 0) - COALESCE((
       SELECT SUM(cantidad) FROM egresos WHERE id_antibiotico = $1
@@ -125,7 +184,6 @@ app.post('/api/egresos', async (req, res) => {
     return res.status(400).json({ error: 'STOCK_INSUFICIENTE', disponible });
   }
 
-  // Validación Poka-Yoke: promedio histórico del sector (+200%)
   if (!forzar) {
     const promedioQuery = await pool.query(`
       SELECT AVG(cantidad) AS promedio FROM egresos 
