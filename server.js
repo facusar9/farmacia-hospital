@@ -14,7 +14,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-const LEAD_TIME_DIAS = 15; // días que tarda en llegar una compra nueva (ajustable)
+const LEAD_TIME_DIAS = 15;
 
 // ============================================
 // SECTORES
@@ -28,53 +28,61 @@ app.get('/api/sectores', async (req, res) => {
 // ANTIBIOTICOS
 // ============================================
 app.get('/api/antibioticos', async (req, res) => {
-  const result = await pool.query('SELECT * FROM antibioticos WHERE activo = TRUE ORDER BY nombre_generico');
+  const { todos } = req.query;
+  const query = todos === 'true'
+    ? 'SELECT * FROM antibioticos ORDER BY nombre_generico'
+    : 'SELECT * FROM antibioticos WHERE activo = TRUE ORDER BY nombre_generico';
+  const result = await pool.query(query);
   res.json(result.rows);
 });
 
 app.post('/api/antibioticos', async (req, res) => {
-  const { nombre_generico, presentacion, stock_minimo_alerta } = req.body;
+  const { nombre_generico, presentacion, stock_minimo_alerta, gramos_por_unidad, ddd_gramos } = req.body;
   const result = await pool.query(
-    'INSERT INTO antibioticos (nombre_generico, presentacion, stock_minimo_alerta) VALUES ($1, $2, $3) RETURNING *',
-    [nombre_generico, presentacion, stock_minimo_alerta || 30]
+    `INSERT INTO antibioticos (nombre_generico, presentacion, stock_minimo_alerta, gramos_por_unidad, ddd_gramos) 
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [nombre_generico, presentacion, stock_minimo_alerta || 30, gramos_por_unidad || null, ddd_gramos || null]
+  );
+  res.json(result.rows[0]);
+});
+
+app.put('/api/antibioticos/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nombre_generico, presentacion, stock_minimo_alerta, gramos_por_unidad, ddd_gramos } = req.body;
+  const result = await pool.query(
+    `UPDATE antibioticos 
+     SET nombre_generico=$1, presentacion=$2, stock_minimo_alerta=$3, gramos_por_unidad=$4, ddd_gramos=$5
+     WHERE id_antibiotico=$6 RETURNING *`,
+    [nombre_generico, presentacion, stock_minimo_alerta, gramos_por_unidad || null, ddd_gramos || null, id]
+  );
+  res.json(result.rows[0]);
+});
+
+app.put('/api/antibioticos/:id/estado', async (req, res) => {
+  const { id } = req.params;
+  const { activo } = req.body;
+  const result = await pool.query(
+    'UPDATE antibioticos SET activo=$1 WHERE id_antibiotico=$2 RETURNING *',
+    [activo, id]
   );
   res.json(result.rows[0]);
 });
 
 // ============================================
-// DASHBOARD - STOCK + CONSUMO PROMEDIO + AUTONOMÍA + RENOVACIÓN
+// DASHBOARD - STOCK + CONSUMO + AUTONOMÍA + RENOVACIÓN
 // ============================================
 app.get('/api/stock', async (req, res) => {
   const query = `
     SELECT 
-      a.id_antibiotico,
-      a.nombre_generico,
-      a.presentacion,
-      a.stock_minimo_alerta,
+      a.id_antibiotico, a.nombre_generico, a.presentacion, a.stock_minimo_alerta,
       COALESCE(ing.total_ingresos, 0) - COALESCE(egr.total_egresos, 0) AS stock_actual,
       COALESCE(egr3m.total_3m, 0) AS consumo_3_meses,
       prox.proximo_vencimiento
     FROM antibioticos a
-    LEFT JOIN (
-      SELECT id_antibiotico, SUM(cantidad) AS total_ingresos 
-      FROM ingresos GROUP BY id_antibiotico
-    ) ing ON ing.id_antibiotico = a.id_antibiotico
-    LEFT JOIN (
-      SELECT id_antibiotico, SUM(cantidad) AS total_egresos 
-      FROM egresos GROUP BY id_antibiotico
-    ) egr ON egr.id_antibiotico = a.id_antibiotico
-    LEFT JOIN (
-      SELECT id_antibiotico, SUM(cantidad) AS total_3m 
-      FROM egresos 
-      WHERE fecha_egreso >= NOW() - INTERVAL '90 days'
-      GROUP BY id_antibiotico
-    ) egr3m ON egr3m.id_antibiotico = a.id_antibiotico
-    LEFT JOIN (
-      SELECT id_antibiotico, MIN(fecha_vencimiento) AS proximo_vencimiento
-      FROM ingresos
-      WHERE fecha_vencimiento >= CURRENT_DATE
-      GROUP BY id_antibiotico
-    ) prox ON prox.id_antibiotico = a.id_antibiotico
+    LEFT JOIN (SELECT id_antibiotico, SUM(cantidad) AS total_ingresos FROM ingresos GROUP BY id_antibiotico) ing ON ing.id_antibiotico = a.id_antibiotico
+    LEFT JOIN (SELECT id_antibiotico, SUM(cantidad) AS total_egresos FROM egresos GROUP BY id_antibiotico) egr ON egr.id_antibiotico = a.id_antibiotico
+    LEFT JOIN (SELECT id_antibiotico, SUM(cantidad) AS total_3m FROM egresos WHERE fecha_egreso >= NOW() - INTERVAL '90 days' GROUP BY id_antibiotico) egr3m ON egr3m.id_antibiotico = a.id_antibiotico
+    LEFT JOIN (SELECT id_antibiotico, MIN(fecha_vencimiento) AS proximo_vencimiento FROM ingresos WHERE fecha_vencimiento >= CURRENT_DATE GROUP BY id_antibiotico) prox ON prox.id_antibiotico = a.id_antibiotico
     WHERE a.activo = TRUE
     ORDER BY a.nombre_generico
   `;
@@ -91,39 +99,26 @@ app.get('/api/stock', async (req, res) => {
     if (stock_actual <= row.stock_minimo_alerta) semaforo = 'rojo';
     else if (stock_actual <= row.stock_minimo_alerta * 1.5) semaforo = 'amarillo';
 
-    let dias_autonomia = null;
-    let fecha_agotamiento = null;
-    let fecha_renovacion_sugerida = null;
-    let alerta_renovacion = false;
+    let dias_autonomia = null, fecha_agotamiento = null, fecha_renovacion_sugerida = null, alerta_renovacion = false;
 
     if (consumo_promedio_diario > 0) {
       dias_autonomia = Math.floor(stock_actual / consumo_promedio_diario);
-
       const fAgota = new Date(hoy);
       fAgota.setDate(fAgota.getDate() + dias_autonomia);
       fecha_agotamiento = fAgota.toISOString().split('T')[0];
-
       const fRenueva = new Date(fAgota);
       fRenueva.setDate(fRenueva.getDate() - LEAD_TIME_DIAS);
       fecha_renovacion_sugerida = fRenueva.toISOString().split('T')[0];
-
       if (fRenueva <= hoy) alerta_renovacion = true;
     }
 
     return {
-      id_antibiotico: row.id_antibiotico,
-      nombre_generico: row.nombre_generico,
-      presentacion: row.presentacion,
-      stock_minimo_alerta: row.stock_minimo_alerta,
-      stock_actual,
+      id_antibiotico: row.id_antibiotico, nombre_generico: row.nombre_generico, presentacion: row.presentacion,
+      stock_minimo_alerta: row.stock_minimo_alerta, stock_actual,
       consumo_promedio_mensual: Math.round(consumo_promedio_mensual),
       consumo_promedio_diario: Math.round(consumo_promedio_diario * 10) / 10,
-      dias_autonomia,
-      fecha_agotamiento,
-      fecha_renovacion_sugerida,
-      alerta_renovacion,
-      proximo_vencimiento: row.proximo_vencimiento,
-      semaforo
+      dias_autonomia, fecha_agotamiento, fecha_renovacion_sugerida, alerta_renovacion,
+      proximo_vencimiento: row.proximo_vencimiento, semaforo
     };
   });
 
@@ -131,25 +126,17 @@ app.get('/api/stock', async (req, res) => {
 });
 
 // ============================================
-// LOTES DISPONIBLES (FEFO - primero vence, primero sale)
+// LOTES DISPONIBLES (FEFO)
 // ============================================
 app.get('/api/lotes/:id_antibiotico', async (req, res) => {
   const { id_antibiotico } = req.params;
   const query = `
-    SELECT 
-      i.lote,
-      i.fecha_vencimiento,
-      i.cantidad - COALESCE((
-        SELECT SUM(e.cantidad) FROM egresos e 
-        WHERE e.lote = i.lote AND e.id_antibiotico = i.id_antibiotico
-      ), 0) AS stock_disponible
-    FROM ingresos i
-    WHERE i.id_antibiotico = $1
-    ORDER BY i.fecha_vencimiento ASC
+    SELECT i.lote, i.fecha_vencimiento,
+      i.cantidad - COALESCE((SELECT SUM(e.cantidad) FROM egresos e WHERE e.lote = i.lote AND e.id_antibiotico = i.id_antibiotico), 0) AS stock_disponible
+    FROM ingresos i WHERE i.id_antibiotico = $1 ORDER BY i.fecha_vencimiento ASC
   `;
   const result = await pool.query(query, [id_antibiotico]);
-  const disponibles = result.rows.filter(r => r.stock_disponible > 0);
-  res.json(disponibles);
+  res.json(result.rows.filter(r => r.stock_disponible > 0));
 });
 
 // ============================================
@@ -166,18 +153,15 @@ app.post('/api/ingresos', async (req, res) => {
 });
 
 // ============================================
-// EGRESOS (con validación Poka-Yoke)
+// EGRESOS (Poka-Yoke)
 // ============================================
 app.post('/api/egresos', async (req, res) => {
-  const { id_antibiotico, id_sector, cantidad, lote, solicitante, tipo, forzar } = req.body;
+  const { id_antibiotico, id_sector, cantidad, lote, tipo, forzar } = req.body;
 
   const stockQuery = await pool.query(`
-    SELECT COALESCE(SUM(cantidad), 0) - COALESCE((
-      SELECT SUM(cantidad) FROM egresos WHERE id_antibiotico = $1
-    ), 0) AS disponible
+    SELECT COALESCE(SUM(cantidad), 0) - COALESCE((SELECT SUM(cantidad) FROM egresos WHERE id_antibiotico = $1), 0) AS disponible
     FROM ingresos WHERE id_antibiotico = $1
   `, [id_antibiotico]);
-  
   const disponible = stockQuery.rows[0].disponible;
 
   if (cantidad > disponible) {
@@ -186,10 +170,8 @@ app.post('/api/egresos', async (req, res) => {
 
   if (!forzar) {
     const promedioQuery = await pool.query(`
-      SELECT AVG(cantidad) AS promedio FROM egresos 
-      WHERE id_antibiotico = $1 AND id_sector = $2
+      SELECT AVG(cantidad) AS promedio FROM egresos WHERE id_antibiotico = $1 AND id_sector = $2
     `, [id_antibiotico, id_sector]);
-    
     const promedio = promedioQuery.rows[0].promedio;
     if (promedio && cantidad > promedio * 3) {
       return res.status(200).json({ alerta: 'CANTIDAD_ANOMALA', promedio, requiereConfirmacion: true });
@@ -197,27 +179,105 @@ app.post('/api/egresos', async (req, res) => {
   }
 
   const result = await pool.query(
-    `INSERT INTO egresos (id_antibiotico, id_sector, cantidad, lote, solicitante, tipo) 
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [id_antibiotico, id_sector, cantidad, lote, solicitante, tipo || 'Tratamiento paciente']
+    `INSERT INTO egresos (id_antibiotico, id_sector, cantidad, lote, tipo) 
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [id_antibiotico, id_sector, cantidad, lote, tipo || 'Tratamiento paciente']
   );
   res.json(result.rows[0]);
 });
 
-// ============================================
-// HISTORIAL DE EGRESOS (auditoría)
-// ============================================
 app.get('/api/egresos', async (req, res) => {
   const query = `
     SELECT e.*, a.nombre_generico, a.presentacion, s.nombre AS sector
-    FROM egresos e
-    JOIN antibioticos a ON a.id_antibiotico = e.id_antibiotico
-    JOIN sectores s ON s.id_sector = e.id_sector
-    ORDER BY e.fecha_egreso DESC
-    LIMIT 200
+    FROM egresos e JOIN antibioticos a ON a.id_antibiotico = e.id_antibiotico
+    JOIN sectores s ON s.id_sector = e.id_sector ORDER BY e.fecha_egreso DESC LIMIT 200
   `;
   const result = await pool.query(query);
   res.json(result.rows);
+});
+
+// ============================================
+// CENSO MENSUAL (días-paciente)
+// ============================================
+app.post('/api/censo', async (req, res) => {
+  const { id_sector, anio, mes, dias_paciente } = req.body;
+  const result = await pool.query(
+    `INSERT INTO censo_mensual (id_sector, anio, mes, dias_paciente)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (id_sector, anio, mes) DO UPDATE SET dias_paciente = EXCLUDED.dias_paciente
+     RETURNING *`,
+    [id_sector, anio, mes, dias_paciente]
+  );
+  res.json(result.rows[0]);
+});
+
+app.get('/api/censo', async (req, res) => {
+  const { anio, mes } = req.query;
+  const result = await pool.query(
+    `SELECT c.*, s.nombre AS sector FROM censo_mensual c
+     JOIN sectores s ON s.id_sector = c.id_sector
+     WHERE c.anio=$1 AND c.mes=$2 ORDER BY s.nombre`,
+    [anio, mes]
+  );
+  res.json(result.rows);
+});
+
+// ============================================
+// PANEL DDD / 1000 DÍAS-PACIENTE
+// ============================================
+app.get('/api/ddd', async (req, res) => {
+  const { anio, mes } = req.query;
+
+  const query = `
+    SELECT e.id_sector, s.nombre AS sector, a.id_antibiotico, a.nombre_generico,
+      a.ddd_gramos, a.gramos_por_unidad,
+      SUM(e.cantidad) AS unidades_totales,
+      SUM(e.cantidad * COALESCE(a.gramos_por_unidad,0)) AS gramos_totales
+    FROM egresos e
+    JOIN antibioticos a ON a.id_antibiotico = e.id_antibiotico
+    JOIN sectores s ON s.id_sector = e.id_sector
+    WHERE EXTRACT(YEAR FROM e.fecha_egreso) = $1 AND EXTRACT(MONTH FROM e.fecha_egreso) = $2
+    GROUP BY e.id_sector, s.nombre, a.id_antibiotico, a.nombre_generico, a.ddd_gramos, a.gramos_por_unidad
+  `;
+  const rows = (await pool.query(query, [anio, mes])).rows;
+
+  const censoRows = (await pool.query(
+    'SELECT id_sector, dias_paciente FROM censo_mensual WHERE anio=$1 AND mes=$2', [anio, mes]
+  )).rows;
+  const censoPorSector = {};
+  censoRows.forEach(c => censoPorSector[c.id_sector] = c.dias_paciente);
+
+  const sectoresMap = {};
+  const excluidos = new Set();
+
+  rows.forEach(r => {
+    if (!sectoresMap[r.id_sector]) {
+      sectoresMap[r.id_sector] = { id_sector: r.id_sector, sector: r.sector, detalle: [], ddd_totales: 0 };
+    }
+    if (!r.ddd_gramos || !r.gramos_por_unidad) {
+      excluidos.add(r.nombre_generico);
+      return;
+    }
+    const dddConsumidas = parseFloat(r.gramos_totales) / parseFloat(r.ddd_gramos);
+    sectoresMap[r.id_sector].detalle.push({
+      nombre_generico: r.nombre_generico,
+      ddd_consumidas: Math.round(dddConsumidas * 100) / 100
+    });
+    sectoresMap[r.id_sector].ddd_totales += dddConsumidas;
+  });
+
+  const resultado = Object.values(sectoresMap).map(s => {
+    const dias_paciente = censoPorSector[s.id_sector] || null;
+    const ddd_por_1000 = dias_paciente ? Math.round((s.ddd_totales / dias_paciente) * 1000 * 100) / 100 : null;
+    return {
+      sector: s.sector, id_sector: s.id_sector, dias_paciente,
+      ddd_totales: Math.round(s.ddd_totales * 100) / 100,
+      ddd_por_1000_dias_paciente: ddd_por_1000,
+      detalle: s.detalle.sort((a,b) => b.ddd_consumidas - a.ddd_consumidas)
+    };
+  }).sort((a,b) => (b.ddd_por_1000_dias_paciente || 0) - (a.ddd_por_1000_dias_paciente || 0));
+
+  res.json({ sectores: resultado, excluidos: Array.from(excluidos) });
 });
 
 // ============================================
@@ -226,7 +286,6 @@ app.get('/api/egresos', async (req, res) => {
 app.get('/api/export/excel', async (req, res) => {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Egresos');
-
   sheet.columns = [
     { header: 'Fecha', key: 'fecha_egreso', width: 20 },
     { header: 'Antibiótico', key: 'nombre_generico', width: 25 },
@@ -234,26 +293,20 @@ app.get('/api/export/excel', async (req, res) => {
     { header: 'Sector', key: 'sector', width: 25 },
     { header: 'Cantidad', key: 'cantidad', width: 10 },
     { header: 'Lote', key: 'lote', width: 15 },
-    { header: 'Solicitante', key: 'solicitante', width: 15 },
     { header: 'Tipo', key: 'tipo', width: 20 }
   ];
-
   const query = `
     SELECT e.*, a.nombre_generico, a.presentacion, s.nombre AS sector
-    FROM egresos e
-    JOIN antibioticos a ON a.id_antibiotico = e.id_antibiotico
-    JOIN sectores s ON s.id_sector = e.id_sector
-    ORDER BY e.fecha_egreso DESC
+    FROM egresos e JOIN antibioticos a ON a.id_antibiotico = e.id_antibiotico
+    JOIN sectores s ON s.id_sector = e.id_sector ORDER BY e.fecha_egreso DESC
   `;
   const result = await pool.query(query);
   result.rows.forEach(row => sheet.addRow(row));
-
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', 'attachment; filename=egresos_antibioticos.xlsx');
   await workbook.xlsx.write(res);
   res.end();
 });
 
-// ============================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
