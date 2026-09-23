@@ -72,6 +72,15 @@
 
   <section id="view-ingresar" class="p-6 max-w-3xl mx-auto hidden">
     <h2 class="text-xl font-bold mb-4 text-slate-700">Ingreso de Stock a Farmacia</h2>
+
+    <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-4">
+      <label class="label">📷 Foto de la caja/etiqueta (opcional)</label>
+      <input id="ing-foto" type="file" accept="image/*" capture="environment" class="input mb-2" onchange="previewFoto()">
+      <img id="ing-foto-preview" class="hidden max-h-48 rounded-lg border mb-2">
+      <button onclick="analizarFoto()" id="btn-analizar-foto" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold text-sm hidden">🔍 Analizar foto (autocompletar lote/vencimiento)</button>
+      <p id="msg-foto" class="text-sm mt-2"></p>
+    </div>
+
     <div class="grid grid-cols-2 gap-4 bg-white p-5 rounded-xl shadow-sm border border-slate-200">
       <div><label class="label">Antibiótico</label><select id="ing-antibiotico" class="input"></select></div>
       <div><label class="label">Cantidad</label><input id="ing-cantidad" type="number" class="input"></div>
@@ -174,6 +183,7 @@ const API = '/api';
 let sectores = [], antibioticos = [], antibioticosAdmin = [], stock = [];
 let sectorSeleccionado = null, antibioticoSeleccionado = null, loteSugerido = null, egresoPendiente = null;
 let filtroActivo = null;
+let fotoUrlActual = null;
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 async function cargarDatos() {
@@ -324,6 +334,69 @@ function renderSelectIngreso() {
     return '<option value="' + a.id_antibiotico + '">' + a.nombre_generico + ' ' + a.presentacion + '</option>';
   }).join('');
 }
+
+function previewFoto() {
+  const input = document.getElementById('ing-foto');
+  const preview = document.getElementById('ing-foto-preview');
+  const btnAnalizar = document.getElementById('btn-analizar-foto');
+  fotoUrlActual = null;
+  document.getElementById('msg-foto').innerText = '';
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      preview.src = e.target.result;
+      preview.classList.remove('hidden');
+    };
+    reader.readAsDataURL(input.files[0]);
+    btnAnalizar.classList.remove('hidden');
+  } else {
+    preview.classList.add('hidden');
+    btnAnalizar.classList.add('hidden');
+  }
+}
+
+async function analizarFoto() {
+  const input = document.getElementById('ing-foto');
+  const msg = document.getElementById('msg-foto');
+  if (!input.files || !input.files[0]) return;
+
+  msg.className = 'text-sm mt-2 text-slate-500';
+  msg.innerText = '⏳ Analizando imagen, esto puede tardar unos segundos...';
+
+  const formData = new FormData();
+  formData.append('foto', input.files[0]);
+
+  try {
+    const res = await fetch(API + '/ingresos/analizar-foto', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (data.error) {
+      msg.className = 'text-sm mt-2 text-red-600';
+      msg.innerText = '❌ ' + data.error;
+      return;
+    }
+
+    fotoUrlActual = data.foto_url;
+
+    let encontrado = [];
+    if (data.sugerencias.lote) {
+      document.getElementById('ing-lote').value = data.sugerencias.lote;
+      encontrado.push('lote');
+    }
+    if (data.sugerencias.fecha_vencimiento) {
+      encontrado.push('vencimiento (verificar formato)');
+    }
+
+    msg.className = 'text-sm mt-2 text-green-600';
+    msg.innerText = encontrado.length
+      ? '✅ Foto analizada. Se detectó: ' + encontrado.join(', ') + '. Revisá los datos antes de guardar.'
+      : '⚠️ Foto guardada, pero no se detectó lote ni vencimiento automáticamente. Completá manualmente.';
+  } catch (err) {
+    msg.className = 'text-sm mt-2 text-red-600';
+    msg.innerText = '❌ Error al analizar la imagen';
+  }
+}
+
 async function registrarIngreso() {
   const body = {
     id_antibiotico: document.getElementById('ing-antibiotico').value,
@@ -331,12 +404,25 @@ async function registrarIngreso() {
     lote: document.getElementById('ing-lote').value,
     fecha_vencimiento: document.getElementById('ing-vencimiento').value,
     proveedor: document.getElementById('ing-proveedor').value,
-    numero_remito: document.getElementById('ing-remito').value
+    numero_remito: document.getElementById('ing-remito').value,
+    foto_url: fotoUrlActual
   };
   await fetch(API + '/ingresos', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   const msg = document.getElementById('msg-ingresar');
   msg.className = 'mt-3 font-bold text-green-600';
   msg.innerText = '✅ Ingreso registrado';
+
+  document.getElementById('ing-cantidad').value = '';
+  document.getElementById('ing-lote').value = '';
+  document.getElementById('ing-vencimiento').value = '';
+  document.getElementById('ing-proveedor').value = '';
+  document.getElementById('ing-remito').value = '';
+  document.getElementById('ing-foto').value = '';
+  document.getElementById('ing-foto-preview').classList.add('hidden');
+  document.getElementById('btn-analizar-foto').classList.add('hidden');
+  document.getElementById('msg-foto').innerText = '';
+  fotoUrlActual = null;
+
   setTimeout(function(){ msg.innerText = ''; }, 3000);
 }
 
