@@ -6,40 +6,50 @@
 <title>Control de Antibióticos Hospitalarios</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-100 font-sans">
+<body class="bg-slate-50 font-sans text-slate-800">
 
 <div id="app" class="min-h-screen">
 
-  <header class="bg-slate-800 text-white p-4 flex justify-between items-center">
-    <h1 class="text-xl font-bold">💊 Control de Antibióticos</h1>
-    <nav class="flex gap-2">
-      <button onclick="mostrar('dashboard')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Dashboard</button>
-      <button onclick="mostrar('dispensar')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Dispensar</button>
-      <button onclick="mostrar('ingresar')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Ingresar Stock</button>
-      <button onclick="mostrar('antibioticos')" class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600">Antibióticos</button>
-      <button onclick="exportarExcel()" class="px-3 py-1 rounded bg-green-700 hover:bg-green-600">Exportar Excel</button>
-      <button onclick="toggleContraste()" class="px-3 py-1 rounded bg-yellow-600 hover:bg-yellow-500">🌙 Contraste</button>
+  <header class="bg-slate-900 text-white px-6 py-3 flex justify-between items-center shadow-md sticky top-0 z-20">
+    <h1 class="text-lg font-bold tracking-tight">💊 Control de Antibióticos</h1>
+    <nav class="flex gap-1 flex-wrap">
+      <button onclick="mostrar('dashboard')" class="nav-btn">Dashboard</button>
+      <button onclick="mostrar('dispensar')" class="nav-btn">Dispensar</button>
+      <button onclick="mostrar('ingresar')" class="nav-btn">Ingresar Stock</button>
+      <button onclick="mostrar('antibioticos')" class="nav-btn">Antibióticos</button>
+      <button onclick="mostrar('epidemiologia')" class="nav-btn">Epidemiología</button>
+      <button onclick="exportarExcel()" class="nav-btn bg-emerald-700 hover:bg-emerald-600">Exportar Excel</button>
+      <button onclick="toggleContraste()" class="nav-btn bg-amber-600 hover:bg-amber-500">🌙</button>
     </nav>
   </header>
 
-  <!-- DASHBOARD -->
-  <section id="view-dashboard" class="p-6">
-    <div class="flex justify-between mb-2">
-      <h2 class="text-2xl font-bold">Stock, Consumo y Autonomía</h2>
-      <input id="buscador" placeholder="Buscar (Ctrl+K)" class="border rounded px-3 py-1" oninput="filtrarStock()">
+  <!-- ============ DASHBOARD ============ -->
+  <section id="view-dashboard" class="p-6 max-w-7xl mx-auto">
+    <div id="kpis" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"></div>
+
+    <div class="flex flex-wrap justify-between items-center mb-3 gap-2">
+      <h2 class="text-xl font-bold text-slate-700">Stock, Consumo y Autonomía</h2>
+      <div class="flex gap-2">
+        <button onclick="filtrarSemaforo(null)" class="filtro-btn">Todos</button>
+        <button onclick="filtrarSemaforo('rojo')" class="filtro-btn bg-red-100 text-red-700">🔴 Crítico</button>
+        <button onclick="filtrarSemaforo('amarillo')" class="filtro-btn bg-yellow-100 text-yellow-700">🟡 Alerta</button>
+        <button onclick="filtrarSemaforo('verde')" class="filtro-btn bg-green-100 text-green-700">🟢 OK</button>
+        <input id="buscador" placeholder="Buscar (Ctrl+K)" class="border rounded-lg px-3 py-1.5 text-sm" oninput="filtrarStock()">
+      </div>
     </div>
-    <p class="text-sm text-slate-500 mb-4">Consumo calculado sobre los últimos 3 meses. Renovación sugerida con 15 días de anticipación.</p>
-    <div class="overflow-x-auto">
-      <table class="w-full bg-white rounded shadow text-sm">
-        <thead class="bg-slate-700 text-white">
+    <p class="text-xs text-slate-400 mb-3">Consumo calculado sobre los últimos 90 días. Renovación sugerida con 15 días de anticipación.</p>
+
+    <div class="overflow-x-auto bg-white rounded-xl shadow-sm border border-slate-200">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100 text-slate-600 uppercase text-xs">
           <tr>
-            <th class="p-2 text-left">Antibiótico</th>
-            <th class="p-2 text-left">Stock Actual</th>
-            <th class="p-2 text-left">Consumo/mes (3m)</th>
-            <th class="p-2 text-left">Autonomía</th>
-            <th class="p-2 text-left">Agotamiento Est.</th>
-            <th class="p-2 text-left">Renovar Compra</th>
-            <th class="p-2 text-left">Estado</th>
+            <th class="p-3 text-left">Antibiótico</th>
+            <th class="p-3 text-right">Stock</th>
+            <th class="p-3 text-right">Consumo/mes</th>
+            <th class="p-3 text-right">Autonomía</th>
+            <th class="p-3 text-left">Agotamiento Est.</th>
+            <th class="p-3 text-left">Renovar Compra</th>
+            <th class="p-3 text-center">Estado</th>
           </tr>
         </thead>
         <tbody id="tabla-stock"></tbody>
@@ -47,157 +57,246 @@
     </div>
   </section>
 
-  <!-- DISPENSACION RAPIDA -->
-  <section id="view-dispensar" class="p-6 hidden">
-    <h2 class="text-2xl font-bold mb-4">Dispensación Rápida</h2>
+  <!-- ============ DISPENSAR ============ -->
+  <section id="view-dispensar" class="p-6 max-w-3xl mx-auto hidden">
+    <h2 class="text-xl font-bold mb-4 text-slate-700">Dispensación Rápida</h2>
 
-    <p class="font-semibold mb-2">PASO 1: Sector destino (teclado 1-8)</p>
+    <p class="font-semibold mb-2 text-sm text-slate-500">PASO 1 · Sector destino (teclado 1-8)</p>
     <div id="sectores-botones" class="grid grid-cols-4 gap-2 mb-6"></div>
     <p id="sector-elegido" class="mb-4 text-blue-700 font-bold"></p>
 
-    <p class="font-semibold mb-2">PASO 2: Buscar antibiótico</p>
-    <input id="buscar-atb" placeholder="Escribí el nombre..." class="border rounded px-3 py-2 w-full mb-2" oninput="buscarAntibiotico()">
+    <p class="font-semibold mb-2 text-sm text-slate-500">PASO 2 · Buscar antibiótico</p>
+    <input id="buscar-atb" placeholder="Escribí el nombre..." class="border rounded-lg px-3 py-2 w-full mb-2" oninput="buscarAntibiotico()">
     <div id="resultados-atb" class="mb-4"></div>
 
-    <div id="lote-sugerido" class="bg-blue-50 border border-blue-300 rounded p-3 mb-4 hidden"></div>
+    <div id="lote-sugerido" class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 hidden text-sm"></div>
 
-    <div class="flex gap-4 mb-4">
-      <div>
-        <label class="block text-sm">Cantidad</label>
-        <input id="cantidad" type="number" class="border rounded px-3 py-2 w-32">
-      </div>
-      <div>
-        <label class="block text-sm">Solicitante (matrícula)</label>
-        <input id="solicitante" class="border rounded px-3 py-2 w-48">
-      </div>
+    <div class="mb-4">
+      <label class="block text-sm text-slate-500 mb-1">Cantidad</label>
+      <input id="cantidad" type="number" class="border rounded-lg px-3 py-2 w-32">
     </div>
 
-    <button onclick="confirmarEgreso()" class="bg-green-600 text-white px-6 py-3 rounded font-bold text-lg">CONFIRMAR EGRESO (Enter)</button>
+    <button onclick="confirmarEgreso()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-bold text-lg shadow">CONFIRMAR EGRESO (Enter)</button>
     <p id="msg-dispensar" class="mt-3 font-bold"></p>
   </section>
 
-  <!-- INGRESAR STOCK -->
-  <section id="view-ingresar" class="p-6 hidden">
-    <h2 class="text-2xl font-bold mb-4">Ingreso de Stock a Farmacia</h2>
-    <div class="grid grid-cols-2 gap-4 max-w-2xl">
-      <div>
-        <label class="block text-sm">Antibiótico</label>
-        <select id="ing-antibiotico" class="border rounded px-3 py-2 w-full"></select>
-      </div>
-      <div>
-        <label class="block text-sm">Cantidad</label>
-        <input id="ing-cantidad" type="number" class="border rounded px-3 py-2 w-full">
-      </div>
-      <div>
-        <label class="block text-sm">Lote</label>
-        <input id="ing-lote" class="border rounded px-3 py-2 w-full">
-      </div>
-      <div>
-        <label class="block text-sm">Fecha de Vencimiento</label>
-        <input id="ing-vencimiento" type="date" class="border rounded px-3 py-2 w-full">
-      </div>
-      <div>
-        <label class="block text-sm">Proveedor</label>
-        <input id="ing-proveedor" class="border rounded px-3 py-2 w-full">
-      </div>
-      <div>
-        <label class="block text-sm">N° Remito</label>
-        <input id="ing-remito" class="border rounded px-3 py-2 w-full">
-      </div>
+  <!-- ============ INGRESAR STOCK ============ -->
+  <section id="view-ingresar" class="p-6 max-w-3xl mx-auto hidden">
+    <h2 class="text-xl font-bold mb-4 text-slate-700">Ingreso de Stock a Farmacia</h2>
+    <div class="grid grid-cols-2 gap-4 bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+      <div><label class="label">Antibiótico</label><select id="ing-antibiotico" class="input"></select></div>
+      <div><label class="label">Cantidad</label><input id="ing-cantidad" type="number" class="input"></div>
+      <div><label class="label">Lote</label><input id="ing-lote" class="input"></div>
+      <div><label class="label">Fecha de Vencimiento</label><input id="ing-vencimiento" type="date" class="input"></div>
+      <div><label class="label">Proveedor</label><input id="ing-proveedor" class="input"></div>
+      <div><label class="label">N° Remito</label><input id="ing-remito" class="input"></div>
     </div>
-    <button onclick="registrarIngreso()" class="bg-blue-600 text-white px-6 py-3 rounded font-bold mt-4">Registrar Ingreso</button>
+    <button onclick="registrarIngreso()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold mt-4">Registrar Ingreso</button>
     <p id="msg-ingresar" class="mt-3 font-bold"></p>
   </section>
 
-  <!-- ANTIBIOTICOS (EDITABLE) -->
-  <section id="view-antibioticos" class="p-6 hidden">
-    <h2 class="text-2xl font-bold mb-4">Catálogo de Antibióticos</h2>
-    <div id="lista-antibioticos" class="grid gap-1 mb-6"></div>
+  <!-- ============ ANTIBIOTICOS ============ -->
+  <section id="view-antibioticos" class="p-6 max-w-4xl mx-auto hidden">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-xl font-bold text-slate-700">Catálogo de Antibióticos</h2>
+      <label class="text-sm flex items-center gap-2"><input type="checkbox" id="ver-inactivos" onchange="cargarAntibioticosAdmin()"> Ver inactivos</label>
+    </div>
+    <div id="lista-antibioticos" class="grid gap-2 mb-6"></div>
 
-    <div class="bg-white border rounded p-4 max-w-xl">
-      <h3 class="font-bold mb-2">+ Agregar nuevo antibiótico</h3>
-      <input id="nuevo-nombre" placeholder="Nombre genérico" class="border rounded px-3 py-2 w-full mb-2">
-      <input id="nuevo-presentacion" placeholder="Presentación (ej: 1g)" class="border rounded px-3 py-2 w-full mb-2">
-      <input id="nuevo-minimo" type="number" placeholder="Stock mínimo alerta" value="30" class="border rounded px-3 py-2 w-full mb-2">
-      <button onclick="agregarAntibiotico()" class="bg-green-600 text-white px-4 py-2 rounded">Agregar</button>
+    <button onclick="abrirModalAtb()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold">+ Agregar antibiótico</button>
+  </section>
+
+  <!-- ============ EPIDEMIOLOGIA / DDD ============ -->
+  <section id="view-epidemiologia" class="p-6 max-w-5xl mx-auto hidden">
+    <h2 class="text-xl font-bold mb-4 text-slate-700">Panel Epidemiológico — DDD / 1000 días-paciente</h2>
+
+    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
+      <h3 class="font-semibold mb-3">1. Carga de censo mensual (días-paciente por sector)</h3>
+      <div class="flex flex-wrap gap-3 items-end mb-3">
+        <div><label class="label">Sector</label><select id="censo-sector" class="input"></select></div>
+        <div><label class="label">Año</label><input id="censo-anio" type="number" class="input w-24" value="2025"></div>
+        <div><label class="label">Mes</label>
+          <select id="censo-mes" class="input">
+            ${''}
+          </select>
+        </div>
+        <div><label class="label">Días-Paciente</label><input id="censo-dias" type="number" class="input w-32"></div>
+        <button onclick="guardarCenso()" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold h-10">Guardar</button>
+      </div>
+      <div id="tabla-censo" class="text-sm"></div>
+    </div>
+
+    <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+      <h3 class="font-semibold mb-3">2. Ranking de consumo por sector</h3>
+      <div class="flex gap-3 items-end mb-4">
+        <div><label class="label">Año</label><input id="ddd-anio" type="number" class="input w-24" value="2025"></div>
+        <div><label class="label">Mes</label><select id="ddd-mes" class="input"></select></div>
+        <button onclick="calcularDDD()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-semibold h-10">Calcular</button>
+      </div>
+      <p class="text-xs text-slate-400 mb-3">Bandas de referencia orientativas (no oficiales): Internación general 600–1000 · Sectores críticos (UTI/Neonatología) 1500–3000 DDD/1000 días-paciente.</p>
+      <div id="ddd-excluidos" class="text-xs text-amber-600 mb-3"></div>
+      <div id="ddd-tabla"></div>
     </div>
   </section>
 
 </div>
 
+<!-- MODAL ANTIBIOTICO (agregar/editar) -->
+<div id="modal-atb" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50 flex">
+  <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
+    <h3 id="modal-atb-titulo" class="font-bold text-lg mb-4">Agregar antibiótico</h3>
+    <input type="hidden" id="atb-id">
+    <div class="space-y-2">
+      <input id="atb-nombre" placeholder="Nombre genérico" class="input">
+      <input id="atb-presentacion" placeholder="Presentación (ej: 1g)" class="input">
+      <input id="atb-minimo" type="number" placeholder="Stock mínimo alerta" class="input">
+      <input id="atb-gramos" type="number" step="0.001" placeholder="Gramos por unidad (ej: 1)" class="input">
+      <input id="atb-ddd" type="number" step="0.001" placeholder="DDD OMS en gramos/día (ej: 2)" class="input">
+    </div>
+    <div class="flex justify-end gap-2 mt-4">
+      <button onclick="cerrarModalAtb()" class="px-4 py-2 rounded-lg bg-slate-200">Cancelar</button>
+      <button onclick="guardarAntibiotico()" class="px-4 py-2 rounded-lg bg-green-600 text-white font-semibold">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADVERTENCIA NARANJA (cantidad anómala) -->
+<div id="modal-anomala" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50 flex">
+  <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl border-t-8 border-orange-500">
+    <h3 class="font-bold text-lg mb-2 text-orange-600">⚠️ Cantidad inusual</h3>
+    <p id="modal-anomala-texto" class="text-sm text-slate-600 mb-4"></p>
+    <p class="text-sm font-semibold mb-4">¿Confirmás que este egreso es correcto?</p>
+    <div class="flex justify-end gap-2">
+      <button onclick="cerrarModalAnomala()" class="px-4 py-2 rounded-lg bg-slate-200">Cancelar</button>
+      <button onclick="confirmarEgresoForzado()" class="px-4 py-2 rounded-lg bg-orange-500 text-white font-semibold">Confirmar igual</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL BLOQUEO ROJO (stock insuficiente) -->
+<div id="modal-bloqueo" class="fixed inset-0 bg-black/40 hidden items-center justify-center z-50 flex">
+  <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl border-t-8 border-red-600">
+    <h3 class="font-bold text-lg mb-2 text-red-600">⛔ Stock insuficiente</h3>
+    <p id="modal-bloqueo-texto" class="text-sm text-slate-600 mb-4"></p>
+    <div class="flex justify-end">
+      <button onclick="cerrarModalBloqueo()" class="px-4 py-2 rounded-lg bg-red-600 text-white font-semibold">Entendido</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.nav-btn { padding: 6px 12px; border-radius: 8px; background: #334155; font-size: 14px; }
+.nav-btn:hover { background: #475569; }
+.filtro-btn { padding: 4px 10px; border-radius: 8px; font-size: 13px; background: #f1f5f9; }
+.input { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; width: 100%; }
+.label { font-size: 12px; color: #64748b; display: block; margin-bottom: 2px; }
+</style>
+
 <script>
 const API = '/api';
-let sectores = [], antibioticos = [], stock = [];
+let sectores = [], antibioticos = [], antibioticosAdmin = [], stock = [];
 let sectorSeleccionado = null, antibioticoSeleccionado = null, loteSugerido = null;
+let egresoPendiente = null;
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 async function cargarDatos() {
   sectores = await (await fetch(`${API}/sectores`)).json();
   antibioticos = await (await fetch(`${API}/antibioticos`)).json();
   stock = await (await fetch(`${API}/stock`)).json();
   renderStock(stock);
+  renderKPIs(stock);
   renderSectores();
   renderSelectIngreso();
-  renderListaAntibioticos();
+  llenarSelectsMes();
+  llenarSelectSectorCenso();
 }
 
 function mostrar(vista) {
-  ['dashboard','dispensar','ingresar','antibioticos'].forEach(v => {
+  ['dashboard','dispensar','ingresar','antibioticos','epidemiologia'].forEach(v => {
     document.getElementById('view-'+v).classList.toggle('hidden', v !== vista);
   });
   if (vista === 'dashboard') cargarDatos();
+  if (vista === 'antibioticos') cargarAntibioticosAdmin();
 }
 
-// DASHBOARD
+// ============ KPIs ============
+function renderKPIs(data) {
+  const rojos = data.filter(a => a.semaforo === 'rojo').length;
+  const amarillos = data.filter(a => a.semaforo === 'amarillo').length;
+  const hoy = new Date();
+  const proximosVencer = data.filter(a => a.proximo_vencimiento && (new Date(a.proximo_vencimiento) - hoy) / 86400000 <= 30).length;
+
+  document.getElementById('kpis').innerHTML = `
+    <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+      <p class="text-xs text-slate-400">Total antibióticos</p>
+      <p class="text-2xl font-bold">${data.length}</p>
+    </div>
+    <div class="bg-red-50 rounded-xl p-4 shadow-sm border border-red-200">
+      <p class="text-xs text-red-500">🔴 Stock crítico</p>
+      <p class="text-2xl font-bold text-red-700">${rojos}</p>
+    </div>
+    <div class="bg-yellow-50 rounded-xl p-4 shadow-sm border border-yellow-200">
+      <p class="text-xs text-yellow-600">🟡 En alerta</p>
+      <p class="text-2xl font-bold text-yellow-700">${amarillos}</p>
+    </div>
+    <div class="bg-blue-50 rounded-xl p-4 shadow-sm border border-blue-200">
+      <p class="text-xs text-blue-500">📅 Vencen en 30 días</p>
+      <p class="text-2xl font-bold text-blue-700">${proximosVencer}</p>
+    </div>
+  `;
+}
+
+// ============ DASHBOARD TABLA ============
+let filtroActivo = null;
 function renderStock(data) {
   const cont = document.getElementById('tabla-stock');
   cont.innerHTML = data.map(a => {
-    const color = a.semaforo === 'rojo' ? 'bg-red-50' : a.semaforo === 'amarillo' ? 'bg-yellow-50' : 'bg-green-50';
-    const punto = a.semaforo === 'rojo' ? '🔴' : a.semaforo === 'amarillo' ? '🟡' : '🟢';
+    const badge = a.semaforo === 'rojo' ? 'bg-red-100 text-red-700' : a.semaforo === 'amarillo' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700';
+    const punto = a.semaforo === 'rojo' ? '🔴 Crítico' : a.semaforo === 'amarillo' ? '🟡 Alerta' : '🟢 OK';
+    const autonomia = a.dias_autonomia !== null ? `${a.dias_autonomia} días` : '—';
+    const renovacionColor = a.alerta_renovacion ? 'text-red-600 font-bold' : 'text-slate-500';
+    const renovacionTexto = a.alerta_renovacion ? `⚠️ RENOVAR YA` : (a.fecha_renovacion_sugerida || '—');
 
-    const autonomia = a.dias_autonomia !== null ? `${a.dias_autonomia} días` : 'Sin consumo reciente';
-    const agotamiento = a.fecha_agotamiento || '—';
-    const renovacionColor = a.alerta_renovacion ? 'text-red-600 font-bold' : 'text-slate-700';
-    const renovacion = a.fecha_renovacion_sugerida ? a.fecha_renovacion_sugerida : '—';
-    const renovacionTexto = a.alerta_renovacion ? `⚠️ RENOVAR YA (${renovacion})` : renovacion;
-
-    return `<tr class="border-b ${color}">
-      <td class="p-2">${a.nombre_generico} ${a.presentacion}</td>
-      <td class="p-2 font-bold">${a.stock_actual}</td>
-      <td class="p-2">${a.consumo_promedio_mensual} u/mes</td>
-      <td class="p-2">${autonomia}</td>
-      <td class="p-2">${agotamiento}</td>
-      <td class="p-2 ${renovacionColor}">${renovacionTexto}</td>
-      <td class="p-2">${punto}</td>
+    return `<tr class="border-b border-slate-100 hover:bg-slate-50">
+      <td class="p-3 font-medium">${a.nombre_generico} <span class="text-slate-400 text-xs">${a.presentacion}</span></td>
+      <td class="p-3 text-right font-mono">${a.stock_actual}</td>
+      <td class="p-3 text-right font-mono">${a.consumo_promedio_mensual}</td>
+      <td class="p-3 text-right font-mono">${autonomia}</td>
+      <td class="p-3 text-xs">${a.fecha_agotamiento || '—'}</td>
+      <td class="p-3 text-xs ${renovacionColor}">${renovacionTexto}</td>
+      <td class="p-3 text-center"><span class="px-2 py-1 rounded-full text-xs font-semibold ${badge}">${punto}</span></td>
     </tr>`;
   }).join('');
 }
 
+function filtrarSemaforo(color) {
+  filtroActivo = color;
+  filtrarStock();
+}
 function filtrarStock() {
   const q = document.getElementById('buscador').value.toLowerCase();
-  renderStock(stock.filter(a => a.nombre_generico.toLowerCase().includes(q)));
+  let filtrado = stock.filter(a => a.nombre_generico.toLowerCase().includes(q));
+  if (filtroActivo) filtrado = filtrado.filter(a => a.semaforo === filtroActivo);
+  renderStock(filtrado);
 }
 
-// DISPENSAR - Sectores
+// ============ DISPENSAR ============
 function renderSectores() {
-  const cont = document.getElementById('sectores-botones');
-  cont.innerHTML = sectores.map((s, i) => 
-    `<button onclick="elegirSector(${s.id_sector}, '${s.nombre}')" class="border rounded p-2 bg-white hover:bg-blue-100">${i+1}. ${s.nombre}</button>`
+  document.getElementById('sectores-botones').innerHTML = sectores.map((s, i) =>
+    `<button onclick="elegirSector(${s.id_sector}, '${s.nombre}')" class="border rounded-lg p-2 bg-white hover:bg-blue-50 text-sm">${i+1}. ${s.nombre}</button>`
   ).join('');
 }
-
 function elegirSector(id, nombre) {
   sectorSeleccionado = id;
   document.getElementById('sector-elegido').innerText = `Sector elegido: ${nombre}`;
 }
-
 function buscarAntibiotico() {
   const q = document.getElementById('buscar-atb').value.toLowerCase();
   const filtrados = antibioticos.filter(a => a.nombre_generico.toLowerCase().includes(q));
-  document.getElementById('resultados-atb').innerHTML = filtrados.map(a => 
-    `<div onclick="elegirAntibiotico(${a.id_antibiotico}, '${a.nombre_generico} ${a.presentacion}')" class="cursor-pointer border rounded p-2 hover:bg-blue-50">${a.nombre_generico} ${a.presentacion}</div>`
+  document.getElementById('resultados-atb').innerHTML = filtrados.map(a =>
+    `<div onclick="elegirAntibiotico(${a.id_antibiotico}, '${a.nombre_generico} ${a.presentacion}')" class="cursor-pointer border rounded-lg p-2 hover:bg-blue-50 text-sm">${a.nombre_generico} ${a.presentacion}</div>`
   ).join('');
 }
-
 async function elegirAntibiotico(id, nombre) {
   antibioticoSeleccionado = id;
   document.getElementById('buscar-atb').value = nombre;
@@ -208,61 +307,59 @@ async function elegirAntibiotico(id, nombre) {
     loteSugerido = lotes[0];
     div.classList.remove('hidden');
     div.innerHTML = `Sugerencia FEFO: Lote <b>${loteSugerido.lote}</b> | Vence: ${loteSugerido.fecha_vencimiento} | Stock: ${loteSugerido.stock_disponible}`;
-  } else {
-    div.classList.add('hidden');
-    loteSugerido = null;
-  }
+  } else { div.classList.add('hidden'); loteSugerido = null; }
 }
 
-async function confirmarEgreso(forzar = false) {
+async function confirmarEgreso() {
   const cantidad = parseInt(document.getElementById('cantidad').value);
-  const solicitante = document.getElementById('solicitante').value;
   const msg = document.getElementById('msg-dispensar');
-
-  if (!sectorSeleccionado || !antibioticoSeleccionado || !cantidad || !solicitante) {
+  if (!sectorSeleccionado || !antibioticoSeleccionado || !cantidad) {
     msg.className = 'mt-3 font-bold text-red-600';
-    msg.innerText = 'Completá todos los campos.';
+    msg.innerText = 'Completá sector, antibiótico y cantidad.';
     return;
   }
+  egresoPendiente = { id_antibiotico: antibioticoSeleccionado, id_sector: sectorSeleccionado, cantidad, lote: loteSugerido ? loteSugerido.lote : null };
+  await enviarEgreso(false);
+}
 
+async function enviarEgreso(forzar) {
   const res = await fetch(`${API}/egresos`, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      id_antibiotico: antibioticoSeleccionado,
-      id_sector: sectorSeleccionado,
-      cantidad, lote: loteSugerido ? loteSugerido.lote : null,
-      solicitante, forzar
-    })
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ ...egresoPendiente, forzar })
   });
   const data = await res.json();
+  const msg = document.getElementById('msg-dispensar');
 
   if (res.status === 400) {
-    msg.className = 'mt-3 font-bold text-red-600';
-    msg.innerText = `⛔ Stock insuficiente. Disponible: ${data.disponible}`;
+    document.getElementById('modal-bloqueo-texto').innerText = `No se puede dispensar ${egresoPendiente.cantidad} unidades. Stock disponible: ${data.disponible}.`;
+    document.getElementById('modal-bloqueo').classList.remove('hidden');
     return;
   }
   if (data.alerta === 'CANTIDAD_ANOMALA') {
-    if (confirm(`⚠️ La cantidad supera el promedio histórico (${Math.round(data.promedio)}). ¿Confirmás igual?`)) {
-      confirmarEgreso(true);
-    }
+    document.getElementById('modal-anomala-texto').innerText = `La cantidad solicitada supera en más del 200% el promedio histórico de este sector (promedio: ${Math.round(data.promedio)} unidades).`;
+    document.getElementById('modal-anomala').classList.remove('hidden');
     return;
   }
 
   msg.className = 'mt-3 font-bold text-green-600';
   msg.innerText = '✅ Egreso registrado correctamente';
   document.getElementById('cantidad').value = '';
-  document.getElementById('solicitante').value = '';
+  document.getElementById('buscar-atb').value = '';
+  document.getElementById('lote-sugerido').classList.add('hidden');
+  antibioticoSeleccionado = null; loteSugerido = null;
   setTimeout(() => msg.innerText = '', 3000);
 }
 
-// INGRESOS
+function cerrarModalAnomala() { document.getElementById('modal-anomala').classList.add('hidden'); }
+function confirmarEgresoForzado() { document.getElementById('modal-anomala').classList.add('hidden'); enviarEgreso(true); }
+function cerrarModalBloqueo() { document.getElementById('modal-bloqueo').classList.add('hidden'); }
+
+// ============ INGRESOS ============
 function renderSelectIngreso() {
-  document.getElementById('ing-antibiotico').innerHTML = antibioticos.map(a => 
+  document.getElementById('ing-antibiotico').innerHTML = antibioticos.map(a =>
     `<option value="${a.id_antibiotico}">${a.nombre_generico} ${a.presentacion}</option>`
   ).join('');
 }
-
 async function registrarIngreso() {
   const body = {
     id_antibiotico: document.getElementById('ing-antibiotico').value,
@@ -278,51 +375,12 @@ async function registrarIngreso() {
   setTimeout(() => document.getElementById('msg-ingresar').innerText = '', 3000);
 }
 
-// ANTIBIOTICOS
-function renderListaAntibioticos() {
-  document.getElementById('lista-antibioticos').innerHTML = antibioticos.map(a => 
-    `<div class="border rounded p-2 bg-white">${a.nombre_generico} — ${a.presentacion} (mín: ${a.stock_minimo_alerta})</div>`
-  ).join('');
-}
-
-async function agregarAntibiotico() {
-  const body = {
-    nombre_generico: document.getElementById('nuevo-nombre').value,
-    presentacion: document.getElementById('nuevo-presentacion').value,
-    stock_minimo_alerta: parseInt(document.getElementById('nuevo-minimo').value) || 30
-  };
-  await fetch(`${API}/antibioticos`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  document.getElementById('nuevo-nombre').value = '';
-  document.getElementById('nuevo-presentacion').value = '';
-  cargarDatos();
-}
-
-// EXPORTAR
-function exportarExcel() {
-  window.location.href = `${API}/export/excel`;
-}
-
-// ALTO CONTRASTE
-function toggleContraste() {
-  document.body.classList.toggle('invert');
-}
-
-// ATAJOS DE TECLADO
-document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.key === 'k') {
-    e.preventDefault();
-    document.getElementById('buscador')?.focus();
-  }
-  if (!document.getElementById('view-dispensar').classList.contains('hidden')) {
-    if (e.key >= '1' && e.key <= '8' && document.activeElement.tagName !== 'INPUT') {
-      const idx = parseInt(e.key) - 1;
-      if (sectores[idx]) elegirSector(sectores[idx].id_sector, sectores[idx].nombre);
-    }
-    if (e.key === 'Enter' && document.activeElement.id !== 'buscar-atb') confirmarEgreso();
-  }
-});
-
-cargarDatos();
-</script>
-</body>
-</html>
+// ============ ANTIBIOTICOS (ADMIN) ============
+async function cargarAntibioticosAdmin() {
+  const todos = document.getElementById('ver-inactivos').checked;
+  antibioticosAdmin = await (await fetch(`${API}/antibioticos?todos=${todos}`)).json();
+  document.getElementById('lista-antibioticos').innerHTML = antibioticosAdmin.map(a => `
+    <div class="flex justify-between items-center border rounded-lg p-3 bg-white ${!a.activo ? 'opacity-50' : ''}">
+      <div>
+        <p class="font-semibold">${a.nombre_generico} <span class="text-slate-400 text-sm">${a.presentacion}</span></p>
+        <p class="text-xs text-slate-400">Mín: ${a.stock
